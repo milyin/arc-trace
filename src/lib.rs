@@ -1,6 +1,14 @@
-use std::{sync::{Arc, atomic::AtomicU64, Mutex}, any::type_name, backtrace::{Backtrace}, collections::HashMap};
+use std::{sync::{Arc, atomic::AtomicU64, Mutex}, any::type_name, backtrace::Backtrace, collections::HashMap, env};
 
 static TRACERS: Mutex<Option<Vec<Arc<Tracer>>>> = Mutex::new(None);
+
+fn init() {
+    let mut tracers = TRACERS.lock().unwrap();
+    if tracers.is_none() {
+        *tracers = Some(Vec::new());
+        env::set_var("RUST_BACKTRACE", "1");
+    }
+}
 
 pub struct Tracer {
     name: String,
@@ -37,11 +45,14 @@ pub fn print_traces() {
     if let Some(tracers) = &*tracers {
         for tracer in tracers {
             let locations = tracer.locations.lock().unwrap();
+            println!("Tracer: {}", tracer.name);
             for (id, backtrace) in locations.iter() {
-                log::error!("{} {} {}", tracer.name, id, " created at:");
-                log::error!("{}", backtrace);
+                println!("Remained instance {}, created at:", id);
+                println!("{}", backtrace);
             }
         }
+    } else {
+        println!("No tracers were created");
     }
 }
 
@@ -53,6 +64,7 @@ pub struct ArcTrace<T> {
 
 impl<T> ArcTrace<T> {
     pub fn new(value: T) -> Self {
+        init();
         let arc = Arc::new(value);
         let tracer = Arc::new(Tracer::new(type_name::<T>().to_string()));
         let id = tracer.get_next_id();
@@ -83,7 +95,8 @@ impl<T> Clone for ArcTrace<T> {
 impl<T> Drop for ArcTrace<T> {
     fn drop(&mut self) {
         self.tracer.drop_id(self.id);
-        log::trace!("{} {} dropped, refcount = {}", self.tracer.name, self.id, Arc::strong_count(&self.arc));
+        // log level is purposedly different from the one in the clone method to see color difference in the logs
+        log::debug!("{} {} dropped, refcount = {}", self.tracer.name, self.id, Arc::strong_count(&self.arc));
     }
 }
 
