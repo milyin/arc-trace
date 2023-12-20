@@ -12,7 +12,7 @@ impl<T> ArcTrace<T> {
     }
 }
 
-impl Clone for ArcTrace<T> {
+impl<T> Clone for ArcTrace<T> {
     fn clone(&self) -> Self {
         Self {
             arc: self.arc.clone(),
