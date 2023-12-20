@@ -1,8 +1,11 @@
-use std::{sync::{Arc, atomic::AtomicU64}, any::type_name};
+use std::{sync::{Arc, atomic::AtomicU64, Mutex}, any::type_name, backtrace::{Backtrace}, collections::HashMap};
+
+static TRACERS: Mutex<Option<Vec<Arc<Tracer>>>> = Mutex::new(None);
 
 pub struct Tracer {
     name: String,
-    next_id: AtomicU64
+    next_id: AtomicU64,
+    locations: Mutex<HashMap<u64, Backtrace>>,
 }
 
 impl Tracer {
@@ -11,11 +14,34 @@ impl Tracer {
     ) -> Self {
         Self {
             name,
-            next_id: AtomicU64::new(0)
+            next_id: AtomicU64::new(0),
+            locations: Mutex::new(HashMap::new()),
         }
     }
     pub fn get_next_id(&self) -> u64 {
-        self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst)
+        let id = self.next_id.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        let mut locations = self.locations.lock().unwrap();
+        let backtrace = Backtrace::capture();
+        locations.insert(id, backtrace);
+        id
+    }
+
+    pub fn drop_id(&self, id: u64) {
+        let mut locations = self.locations.lock().unwrap();
+        locations.remove(&id);
+    }
+}
+
+pub fn print_traces() {
+    let tracers = TRACERS.lock().unwrap();
+    if let Some(tracers) = &*tracers {
+        for tracer in tracers {
+            let locations = tracer.locations.lock().unwrap();
+            for (id, backtrace) in locations.iter() {
+                log::error!("{} {} {}", tracer.name, id, " created at:");
+                log::error!("{}", backtrace);
+            }
+        }
     }
 }
 
@@ -30,7 +56,8 @@ impl<T> ArcTrace<T> {
         let arc = Arc::new(value);
         let tracer = Arc::new(Tracer::new(type_name::<T>().to_string()));
         let id = tracer.get_next_id();
-        log::warn!("{} {} {}", tracer.name, id, "created");
+        TRACERS.lock().unwrap().get_or_insert_with(Vec::new).push(tracer.clone());
+        log::trace!("{} {} {}", tracer.name, id, "created");
         Self {
             arc,
             tracer,
@@ -44,7 +71,7 @@ impl<T> Clone for ArcTrace<T> {
         let arc = self.arc.clone();
         let tracer = self.tracer.clone();
         let id = tracer.get_next_id();
-        log::warn!("{} {} {}", tracer.name, id, "cloned");
+        log::trace!("{} {} cloned, refcount = {}", tracer.name, id, Arc::strong_count(&arc));
         Self {
             arc,
             tracer,
@@ -55,7 +82,8 @@ impl<T> Clone for ArcTrace<T> {
 
 impl<T> Drop for ArcTrace<T> {
     fn drop(&mut self) {
-        log::error!("{} {} {}", self.tracer.name, self.id, "dropped");
+        self.tracer.drop_id(self.id);
+        log::trace!("{} {} dropped, refcount = {}", self.tracer.name, self.id, Arc::strong_count(&self.arc));
     }
 }
 
