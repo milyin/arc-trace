@@ -30,9 +30,9 @@ Remained instance 1, created at:
 
 ```
 
-But for more complex project with multiple leaks it may be hard to analyze gigantic valgrind output and, which is more important, it can be hard to make sure that after the fix the problem had really disappeared. So it may be convenient to ecplictly validate leak from specific `Arc` with this tool.
+But for more complex project with multiple leaks it may be hard to analyze gigantic valgrind output and, which is more important, it can be hard to make sure that after the fix the problem had really disappeared. So it may be convenient to explictly validate suspicious `Arc`s found by valgrind.
 
-To do this replace suspicious `Arc` to `ArcTrace` in your code, add call `arc_trace::print_traces()` at the end. Then run your application with logs enabled 
+To do this replace `Arc` being tested to `ArcTrace`, add call `arc_trace::print_traces()` at the end. Then run your application with logs enabled 
 ```
 RUST_LOG=none,arc_trace=trace cargo run --example leak
 ```
